@@ -108,31 +108,7 @@ namespace gdl
               int idlCount() { return idlThrNum; }
        };
 }
-std::atomic<int> Index = 0;
-void func() {
-       
-       std::cout << "Index = " << ++Index <<std::flush<< std::endl;
-}
-#include<windows.h>
-int main() {
-       std::threadpool thpool(5);
-       for (int i = 0; i < 1000; i++) {
-              thpool.commit(func);
-       }
-       Sleep(5000);
-       //-----
-       std::vector<int> v = { 0,1,2,3 };
-       for (auto it : v) {
-              std::cout << it << std::endl;
-              v.push_back(0);
-       }
-              std::list<int> l = { 0,1,2,3 };
-              for (auto it : l) {
-                     std::cout << it << std::endl;
-                     l.push_back(0);
-              }
-       return 0;
-}
+
 
 
 
