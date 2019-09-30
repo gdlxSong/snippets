@@ -6,7 +6,7 @@
 
 namespace gdl {
 
-	//需要注意的是：GCC低版本，如v5.xxx不支持std::put_time， 测试了一下，我的gcc7.3.1是支持的.
+	//需要注意的是：GCC低版本，如v4.x.x不支持std::put_time， 测试了一下，我的gcc7.3.1是支持的.
 
 	class Timer {
 
