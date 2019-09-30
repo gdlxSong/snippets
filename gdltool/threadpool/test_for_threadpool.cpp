@@ -14,8 +14,9 @@ void func() {
        Index++;
 }
 
-int main() {
+int test0() {
 
+       //创建一个拥有5个线程的线程池，计算向线程池投递1000个task所需的处理时间.
        gdl::Timer timer;
        gdl::threadpool thpool(5);
        for (int i = 0; i < 1000; i++) {
