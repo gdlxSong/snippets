@@ -1,0 +1,43 @@
+
+
+
+# ------------- chapter 1 ---------------------
+
+desc：
+	std::result_of是一个c++提供用来在编译器获取一个可调用对象的返回类型的模板.
+
+	原型：
+		template<class F, class... ArgTypes>
+		class result_of<F(ArgTypes)>;
+
+		可调用对象(callable object):
+			函数指针
+			仿函数(具有operator()成员函数的类对象)
+			可以被转化为函数指针的类对象
+			是一个类成员(函数)指针
+
+			note：这里只包含函数指针而不是函数亦或函数引用，原因在于函数不能定义对象，而函数引用可以看作一个const函数指针。
+
+
+example:
+	src:
+	'''code begin================
+
+		int func(int){return 0;}
+		using func_ref = func&;
+		using func_ptr = func*;
+
+		int main(){
+
+			using A = std::result_of<decltype(func) & (int)>::type;
+			using B = std::result_of<decltype(func) * (int)>::type;
+			using C = std::result_of<decltype(func_ref)(int)>::type;
+			using D = std::result_of<decltype(func_ptr)(int)>::type;
+
+			return 0;
+		}
+	'''code end==================
+
+		因为函数不是可调用对象，所以才有了下面的写法:
+			using A = std::result_of<decltype(func) & (int)>::type;
+			using B = std::result_of<decltype(func) * (int)>::type;
