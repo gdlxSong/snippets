@@ -1,0 +1,17 @@
+
+
+note for weak_ptr
+
+
+# ----------- chapter 1 ---------------
+
+desc:
+	1. 首先weak_ptr不改变shared_ptr对对象管理的引用计数.
+	2. interface note:
+		std::weak_ptr::expired:
+			Returns whether the weak_ptr object is either empty or there are no more shared_ptr in the owner group it belongs to.
+
+		std::weak_ptr::lock:
+			返回一个shared_ptr<T>对象，从weak_ptr管理的对象中。如果weak_ptr.expired == true返回空的shared_ptr.
+
+	3. 这样看来shared_from_this就是返回的weak_ptr.lock
