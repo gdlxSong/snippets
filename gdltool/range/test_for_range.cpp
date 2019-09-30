@@ -6,7 +6,7 @@
 
 
 
-int test1() {
+void test1() {
 	//create and print range's elements.
 	
        for (auto it : gdl::range(0, 9, 3))
