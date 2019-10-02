@@ -1,56 +1,53 @@
-
 /*
 
-	此函数库提供从string中提取numeric.
-	并频闭异常的抛出.
-	这个库依赖于<string>标准函数库.
-	实现：stoi, stol, stoul, stoll, stoull, stof, stod, stold
 
-	//对sto*:
-		sto*函数而言，stoi,stol等转化为整数，接受的字符串只能由数字或者0x等开始，stof,stod等转化为浮点数只能由'.'或数字开始。
-		sto*族函数第二个参数idx是一个输出参数。
-
-	所以strTonumeric肩负在字符串中找到数字的重任 => size_t std::string::find_first_of (const string& str, size_t pos = 0) const noexcept;
+首先是我的目的：从字符串中提取数值
 
 
-	bug: 函数只是实现了string，但是没有兼容wstring
+分析问题：
+	字符串可能是：	"123"
+					"abc"
+					"0456"
+					"0x456a"
+					"hsh0x123"
+					"0.152"
+					"0x.456"
 
-	note: std::string::find_first_of(const string& str, size_t pos = 0)返回值与pos参数无关.
+		分析一下这些字符串：
+			1. 串中的数可能是不同形式的：
+				如16进制有0x前缀
+				如8进制有0前缀
+
+			2. 串中的数可能组成元素不同
+				Base16:	0123456789abcdef
+				Base2:	01
+				Base10: 0123456789
+
+			3. 串中的数可能是小数.
+				小数具有小数点.
+
+		所以可以设计：
+			str ->	pre-fix	-> findStart<> -> 抛弃前缀 -\
+				->  non-fix -> findStart<>				-\
+															-> is_floating_point -> yes ->  检查小数点 - > 考虑是否左移
+																				 -> no  ->	return true
+				-》最后给stoxxx提供一个起始地址
 
 
-	-----------------
-	Interface:
-		[]strtolower:
-			declare:
-				std::string strtolower(const std::string& str)
-			parameters:
-				str : const std::string
-					需要进行大写到小写转换的字符串.
-			return:	
-					返回转换为小写的字符串：std::string
 
 
-		[]strTonumeric<destT, Index>
-			declare:
-				template<class destT, NumericType Index, class String = std::string>
-				typename std::enable_if<std::is_same<ClassType, destT>::value, std::optional<destT> >::type strTonumeric(const String& __in__ str, size_t* __inout__ ppos = 0)
-			desc:
-				函数模板接受两个模板参数：
-					destT:是用户想要从字符串中提取的类型 destT -> {int, long, unsigned long, long long, unsigned long long, float, double, long double}
-					Index:是提取的内容在字符串中的存在形式：如十进制，十六进制...  本库暂时支持 Base2, Base8, Base10, Base16, Float, 当然使用者可以自行扩展.
-
-			parameters:
-				str : const String&	:	要提取的字符串.
-				ppos : size_t *		:	字符串的操作范围 [&str[0]+*ppos, ~]
-
-			note:	值得注意的是，本函数暂时只支持std::string的str输入
 */
 
 
 
 
-#ifndef GDL_STRTRANSFER_H
-#define GDL_STRTRANSFER_H
+
+
+
+
+#ifndef GDL_STRTO_NUMERIC_HPP
+#define GDL_STRTO_NUMERIC_HPP
+
 #include<exception>
 #include<string>
 #include<optional>
@@ -58,6 +55,7 @@
 #include<functional>
 #include<type_traits>
 #include<memory>
+#include<iostream>
 
 namespace gdl {
 
@@ -82,16 +80,20 @@ namespace gdl {
 		return s;
 	}
 
-
-
 	namespace StrToNumeric {
 
-#define Flag_Float (-1)
+
+
 
 
 		using position_t = size_t;
+		class FloatingPoint {};
 		enum Signal { Negative, Positive };
-		enum NumericType { Base2, Base8, Base10, Base16, Float, Other};
+		enum CodingFormat {CF_NonPrefix, CF_MultiPrefix};
+		enum NumericType { Base2, Base8, Base10, Base16};
+
+
+
 
 
 		Signal checkSignal(const std::string& str, position_t pos) {
@@ -105,53 +107,87 @@ namespace gdl {
 			}
 		}
 
-		template<NumericType Index>
-		bool checkChar(const std::string& str, position_t pos, std::string& pattern) {
 
-			//检查其后格式位0后面是否有01
-			if (pos + 1 >= str.size())
-				return false;
+		template<class T>
+		typename std::enable_if<std::is_floating_point<T>::value, std::optional<position_t> >::type checkPos(const std::string &str, position_t* ppos, std::string pattern, int prefixLength) {
+			
+
+			//CF_MultiPrefix
+			//if(prefixLength.size() == 0)
+			if (prefixLength > 0) {
+
+
+
+				std::string patterndot = pattern + '.';
+				position_t pos = *ppos + prefixLength;
+				if (pos >= str.size()) {
+					//set ppos.
+					*ppos = pos;
+					return std::nullopt;
+				}
+				else {
+					if (std::string::npos == patterndot.find(str[pos])) {
+						//set ppos.
+						*ppos = pos;
+						return std::nullopt;
+					}
+					else {
+						if ('.' != str[pos])
+							return std::optional<position_t>(*ppos);
+						else {
+							pos += 1;
+							if (pos >= str.size()) {
+								//set ppos.
+								*ppos = pos;
+								return std::nullopt;
+							}
+							else {
+								if (std::string::npos == pattern.find(str[pos])) {
+									//set ppos.
+									*ppos = pos;
+									return std::nullopt;
+								}
+								return std::optional<position_t>(*ppos);
+							}
+						}
+					}
+				}
+			}
 			else {
-
-				if (std::string::npos == pattern.find(str[pos + 2]))
-					return false;
-				return true;
+				//CF_NonPrefix.
+				//检查前一位是否为小数点就ok了.
+				if (0 == *ppos)
+					return std::optional<position_t>(*ppos);
+				else {
+					if ('.' == str[*ppos - 1])
+						return std::optional<position_t>(*ppos - 1);
+					return std::optional<position_t>(*ppos);
+				}
 			}
 		}
 
-		//十进制
-		template<NumericType Index>
-		typename std::enable_if<Index == Base10, bool>::type checkChar(const std::string& str, position_t pos) {
-			return true;
-		}
+		template<class T>
+		typename std::enable_if<!std::is_floating_point<T>::value, std::optional<position_t> >::type checkPos(const std::string& str, position_t* ppos, std::string pattern, int prefixLength) {
 
-		//二进制
-		template<NumericType Index>
-		typename std::enable_if<Index == Base2, bool>::type checkChar(const std::string& str, position_t pos) {
-			return true;
-		}
-
-		//十六进制
-		template<NumericType Index>
-		typename std::enable_if<Index == Base16, bool>::type checkChar(const std::string& str, position_t pos) {
-
-			std::string pattern = "0123456789abcdef";
-			return checkChar<Index>(str, pos, pattern);
-		}
-
-		//Floating point
-		template<NumericType Index>
-		typename std::enable_if<Index == Float, bool>::type checkChar(const std::string& str, position_t pos) {
-
-			std::string pattern = "0123456789";
-			if ('.' != str[pos])
-				return true;
-			return checkChar<Index>(str, pos, pattern);
+			if (0 == prefixLength)
+				return std::optional<position_t>(*ppos);
+			
+			//CF_MultiPrefix
+			if (*ppos + prefixLength >= str.size()) {
+				*ppos = *ppos + prefixLength;
+				return std::nullopt;
+			}
+			if (std::string::npos == pattern.find(str[*ppos + prefixLength])) {
+				*ppos = *ppos + prefixLength;
+				return std::nullopt;
+			}
+			return std::optional<position_t>(*ppos);
 		}
 
 
-		template<NumericType Index>
-		std::optional<position_t> findNumeric(const std::string& str, const std::string& match, size_t* ppos) {
+		//findNumeric有两种，进制格式为单字符(2,10进制等)， 进制格式为多字符(如十六进制)
+		template<CodingFormat CFIndex, NumericType Index>
+		typename std::enable_if<CFIndex == CF_NonPrefix, std::optional<position_t> >::type findStart(const std::string& str, const std::string& match, size_t* ppos) {
 
 			//对于有前缀的格式数我们寻找其前缀，没有格式直接寻找其内容，有格式的需要check.
 			auto index = str.find_first_of(match, *ppos);
@@ -161,58 +197,19 @@ namespace gdl {
 				*ppos = str.size();
 				return std::nullopt;
 			}
-			else {
-
-				if (checkChar<Index>(str, index)) {
-					return std::optional<position_t>(index);
-				}
-				else {
-					//checkChar faild.//set ppos.
-					*ppos = index + 1;
-					return std::nullopt;
-				}
-
-			}
+			else 
+				return std::optional<position_t>(index);
 
 		}
 
-		
+		template<CodingFormat CFIndex, NumericType Index>
+		typename std::enable_if<CFIndex == CF_MultiPrefix, std::optional<position_t> >::type findStart(const std::string& str, const std::string& match, size_t* ppos) {
+
+			//这里有一个关于CF_Multi的假设，就是多个标识位与数本身的数据无关，如0x123, 这个数与0x无关.
 
 
-		//10进制
-		template<NumericType Index>
-		typename std::enable_if<Index == Base10, std::optional<position_t> >::type findNumeric(const std::string& str, size_t* ppos) {
 
-			//从字符串中寻找十进制，八进制，二进制...等数字的起始索引位置
-			//ppos贯穿两个函数，但是，只是在这里做修改.
-			std::string match = "0123456789";
-			return findNumeric<Index>(str, match, ppos);
-		}
 
-		//2进制
-		template<NumericType Index>
-		typename std::enable_if<Index == Base2, std::optional<position_t> >::type findNumeric(const std::string& str, size_t* ppos) {
-
-			//从字符串中寻找十进制，八进制，二进制...等数字的起始索引位置
-			//ppos贯穿两个函数，但是，只是在这里做修改.
-			std::string match = "01";
-			return findNumeric<Index>(str, match, ppos);
-		}
-
-		////16进制
-		//template<NumericType Index>
-		//typename std::enable_if<Index == Integer16, std::optional<position_t> >::type findNumeric(const std::string& str, size_t* ppos) {
-
-		//	//十六进制需要将str转小写
-		//	
-		//	std::string match = "0x";
-		//	return findNumeric<Index>(gdl::strtolower(str), match, ppos);
-		//}
-		//16进制
-		template<NumericType Index>
-		typename std::enable_if<Index == Base16, std::optional<position_t> >::type findNumeric(const std::string& str, size_t* ppos) {
-
-			std::string match = "0x";
 			//对于有前缀的格式数我们寻找其前缀，没有格式直接寻找其内容，有格式的需要check.
 			//需要将字符串统一成小写
 			std::string s = gdl::strtolower(str);
@@ -225,43 +222,58 @@ namespace gdl {
 			}
 			else {
 
-				if (checkChar<Base16>(s, index)) {
-					return std::optional<position_t>(index);
-				}
-				else {
-					//checkChar faild.//set ppos.
-					*ppos = index + 1;
+				//判断格式符后是否还有内容.
+				if (index + match.size() >= s.size())
 					return std::nullopt;
-				}
+
+				return std::optional<position_t>(index);
 
 			}
 
 		}
 
-		//Floating point
+
+
+
+		//2进制
 		template<NumericType Index>
-		typename std::enable_if<Index == Float, std::optional<position_t> >::type findNumeric(const std::string& str, size_t* ppos) {
+		typename std::enable_if<Index == Base2, std::optional<position_t> >::type findNumeric(const std::string& str, size_t* ppos) {
 
-			
+			//从字符串中寻找十进制，八进制，二进制...等数字的起始索引位置
+			//ppos贯穿两个函数，但是，只是在这里做修改.
+			std::string match = "01";
+			return findStart<CF_NonPrefix, Index>(str, match, ppos);
+		}
 
-			std::string match = ".0123456789";
-			return findNumeric<Index>(str, match, ppos);
+		//8进制
+		template<NumericType Index>
+		typename std::enable_if<Index == Base8, std::optional<position_t> >::type findNumeric(const std::string& str, size_t* ppos) {
+
+			//从字符串中寻找十进制，八进制，二进制...等数字的起始索引位置
+			//ppos贯穿两个函数，但是，只是在这里做修改.
+			std::string match = "01234567";
+			return findStart<CF_NonPrefix, Index>(str, match, ppos);
+		}
+
+		//10进制
+		template<NumericType Index>
+		typename std::enable_if<Index == Base10, std::optional<position_t> >::type findNumeric(const std::string& str, size_t* ppos) {
+
+			//从字符串中寻找十进制，八进制，二进制...等数字的起始索引位置
+			//ppos贯穿两个函数，但是，只是在这里做修改.
+			std::string match = "0123456789";
+			return findStart<CF_NonPrefix, Index>(str, match, ppos);
 		}
 
 
+		//十六进制
+		template<NumericType Index>
+		typename std::enable_if<Index == Base16, std::optional<position_t> >::type findNumeric(const std::string& str, size_t* ppos) {
 
-
-
-		template <class T, class destT, class String = std::string, class Func>
-		typename std::enable_if<std::is_floating_point<T>::value, T>::type stoxxx(Func&& f, const String& __in__ str, size_t* __inout__ ppos = 0, int base = 10) {
-
-			return f(str.c_str(), ppos);
+			return findStart<CF_MultiPrefix, Index>(str, std::string("0x"), ppos);
 		}
-		template <class T, class String = std::string, class Func>
-		typename std::enable_if< !std::is_floating_point<T>::value, T>::type stoxxx(Func&& f, const String& __in__ str, size_t* __inout__ ppos = 0, int base = 10) {
 
-			return f(str.c_str(), ppos, base);
-		}
+
 
 
 		constexpr int getBase(NumericType Index) {
@@ -276,14 +288,63 @@ namespace gdl {
 				return 10;
 			case Base16:
 				return 16;
-			case Float:
-				return -1;
 			default:
 				return 0;
 			}
 		}
 
-		//std::stoxxx
+
+		std::string getPattern(NumericType Base) {
+
+			//这个hash函数显然是比较低效的，后期做优化
+			switch (Base)
+			{
+			case gdl::StrToNumeric::Base2:
+				return "01";
+			case gdl::StrToNumeric::Base8:
+				return "01234567";
+			case gdl::StrToNumeric::Base10:
+				return "0123456789";
+			case gdl::StrToNumeric::Base16:
+				return "0123456789abcdef";
+			default:
+				return "";
+			}
+		}
+
+
+		int getprefixLen(NumericType Base) {
+
+			//这个hash函数显然是比较低效的，后期做优化
+			switch (Base)
+			{
+			case gdl::StrToNumeric::Base2:
+				return 0;
+			case gdl::StrToNumeric::Base8:
+				return 0;
+			case gdl::StrToNumeric::Base10:
+				return 0;
+			case gdl::StrToNumeric::Base16:
+				return 2;
+			default:
+				return 0;
+			}
+		}
+
+		//Floating.
+		template <class destT, class String = std::string, class Func>
+		typename std::enable_if<std::is_floating_point<destT>::value, destT>::type stoxxx(Func&& f, const String& __in__ str, size_t* __inout__ ppos = 0, int base = 10) {
+
+			return f(str, ppos);
+		}
+		//Integer.
+		template <class destT, class String = std::string, class Func>
+		typename std::enable_if< !std::is_floating_point<destT>::value, destT>::type stoxxx(Func&& f, const String& __in__ str, size_t* __inout__ ppos = 0, int base = 10) {
+
+			return f(str, ppos, base);
+		}
+
+		//gdl::stoxxx
 		template<NumericType Index, class destT, class String = std::string, class Func>
 		std::optional<destT> strTonumeric(Func&& f, const String& __in__ str, size_t* __inout__ ppos = 0) noexcept {
 
@@ -297,32 +358,34 @@ namespace gdl {
 			}
 
 			
-
-
-			//str2int.
+			//str2xxx.
 			try {
 				//find numeric from &str[0]+*ppos
-				std::optional<position_t> pos = findNumeric<Index>(str, ppos);//Index是编译器参数.
+				std::optional<position_t> pos;
 				//check pos.
-				while (*ppos < str.size()) {
-					if (pos)
-						break;
+				do {
 					pos = findNumeric<Index>(str, ppos);
-				}
+					if (pos) {
+						//对于这里还需做出检查，愿意在于CF_MultiPrefix返回的是0x的位置...
+						*ppos = pos.value();
+						pos = checkPos<destT>(str, ppos, getPattern(Index), getprefixLen(Index));
+						if (pos)break;
+					}
+				} while (*ppos < str.size());
 				//check pos or (*ppos >= str.size())
 				if (!pos)
 					return std::nullopt;
 
 				//ppos 是一个__in__, __out__ 参数
 				//判断符号.
-				int s = Positive == checkSignal(str, pos.value()) ? 0 : 1;
-				valueType value = stoxxx<destT, String, Func>(std::forward<Func>(f), str.c_str() + pos.value() - s, ppos, getBase(Index));
 				//set ppos.
-				*ppos = *ppos + pos.value() - s;
+				int s = Positive == checkSignal(str, pos.value()) ? 0 : 1;
+				valueType value = stoxxx<destT, String, Func>(std::forward<Func>(f), str.c_str()+pos.value() - s, ppos, getBase(Index));
 				return std::optional<valueType>(value);
 			}
-			catch (...) {
+			catch (std::exception &e) {
 
+				std::cout << "what: " << e.what() << std::endl;
 				return std::nullopt;
 			}
 
@@ -369,8 +432,9 @@ namespace gdl {
 
 
 
+
 		//std::stof
-		template<class destT, NumericType Index, class String = std::string>
+		template<class destT, NumericType Index, class String = std::string, class _Place>
 		typename std::enable_if<std::is_same<float, destT>::value, std::optional<destT> >::type strTonumeric(const String& __in__ str, size_t* __inout__ ppos = 0) {
 
 			return strTonumeric<Index, destT, String, float(*)(const std::string&, size_t*)>(&std::stof, str, ppos);
@@ -378,7 +442,7 @@ namespace gdl {
 
 
 		//std::stod
-		template<class destT, NumericType Index, class String = std::string>
+		template<class destT, NumericType Index, class String = std::string, class _Place>
 		typename std::enable_if<std::is_same<double, destT>::value, std::optional<destT> >::type strTonumeric(const String& __in__ str, size_t* __inout__ ppos = 0) {
 
 			return strTonumeric<Index, destT, String, double(*)(const std::string&, size_t*)>(&std::stod, str, ppos);
@@ -386,11 +450,28 @@ namespace gdl {
 
 
 		//std::stold
-		template<class destT, NumericType Index, class String = std::string>
+		template<class destT, NumericType Index, class String = std::string, class _Place>
 		typename std::enable_if<std::is_same<long double, destT>::value, std::optional<destT> >::type strTonumeric(const String& __in__ str, size_t* __inout__ ppos = 0) {
 
 			return strTonumeric<Index, destT, String, long double(*)(const std::string&, size_t*)>(&std::stold, str, ppos);
 		}
+
+		//is_floating_point Base16
+		template<class destT, NumericType Index, class String = std::string>
+		typename std::enable_if<std::is_floating_point<destT>::value, typename std::enable_if<Base16 == Index, std::optional<destT> >::type>::type strTonumeric(const String& __in__ str, size_t* __inout__ ppos = 0) {
+
+			return strTonumeric<destT, Base16, String, FloatingPoint>(str, ppos);
+		}
+
+		//is_floating_point Base...other: Base2, Base8, Base10		:原因在于float只支持10，16进制
+		template<class destT, NumericType Index, class String = std::string>
+		typename std::enable_if<std::is_floating_point<destT>::value, typename std::enable_if<Base16 != Index, std::optional<destT> >::type>::type strTonumeric(const String& __in__ str, size_t* __inout__ ppos = 0) {
+
+			return strTonumeric<destT, Base10, String, FloatingPoint>(str, ppos);
+		}
+
+
+
 
 	}
 
@@ -399,5 +480,9 @@ namespace gdl {
 
 
 }
+
+
+
+
 
 #endif
