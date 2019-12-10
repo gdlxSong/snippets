@@ -22,7 +22,8 @@ void test0() {
        for (int i = 0; i < 1000; i++) {
               thpool.commit(func);
        }
-       while (Index < 1000);
+       thpool.join();
+       //while (Index < 1000);
        std::cout << "elapsed " << timer.elapsed() << " milliseconds." << std::endl;
        return 0;
 }
